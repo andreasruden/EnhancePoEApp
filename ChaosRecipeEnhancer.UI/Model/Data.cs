@@ -67,120 +67,179 @@ namespace ChaosRecipeEnhancer.UI.Model
             if (Settings.Default.ExaltedShardRecipeTrackingEnabled) GenerateInfluencedItemSets();
         }
 
-
-        // tries to add item, if item added returns true
-        private static bool AddItemToItemSet(ItemSet set, bool chaosItems = false, bool honorOrder = true)
+        // TODO: This should maybe be in the Item class?
+        private static double GetItemDistanceSq(Item itemA, Item itemB)
         {
-            var listName = chaosItems ? "ItemListChaos" : "ItemList";
+            if (itemA.StashTabIndex != itemB.StashTabIndex)
+                return ItemSet.StashTabDistanceSq;
 
-            Item minItem = null;
-            var minDistance = double.PositiveInfinity;
-
-            // TODO: crashes here after some time
-            foreach (var s in StashTabList.StashTabs)
-            foreach (var i in (List<Item>)Utility.GetPropertyValue(s, listName))
-                if (set.GetNextItemClass() == i.ItemType || (!honorOrder && set.IsValidItem(i)))
-                    if (set.GetItemDistance(i) < minDistance)
-                    {
-                        //Trace.WriteLine(minDistance, "minDistance");
-                        minDistance = set.GetItemDistance(i);
-                        minItem = i;
-                    }
-
-            if (minItem != null)
-            {
-                set.AddItem(minItem);
-                var tab = GetStashTabFromItem(minItem);
-                ((List<Item>)Utility.GetPropertyValue(tab, listName)).Remove(minItem);
-                //tab.ItemListChaos.Remove(minItem);
-                return true;
-            }
-
-            // Looks ugly but in case we allow TwoHandWeapons we need to consider that adding a 1H fails but we might have a 2H (this only applies if we honor the order)
-            if (honorOrder)
-            {
-                var nextItemType = set.GetNextItemClass();
-                if (nextItemType == "TwoHandWeapons")
-                {
-                    nextItemType = "OneHandWeapons";
-                    foreach (var s in StashTabList.StashTabs)
-                    foreach (var i in (List<Item>)Utility.GetPropertyValue(s, listName))
-                        if (nextItemType == i.ItemType)
-                            if (set.GetItemDistance(i) < minDistance)
-                            {
-                                //Trace.WriteLine(minDistance, "minDistance");
-                                minDistance = set.GetItemDistance(i);
-                                minItem = i;
-                            }
-
-                    if (minItem != null)
-                    {
-                        set.AddItem(minItem);
-                        var tab = GetStashTabFromItem(minItem);
-                        ((List<Item>)Utility.GetPropertyValue(tab, listName)).Remove(minItem);
-                        //tab.ItemListChaos.Remove(minItem);
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            return Math.Pow(itemA.x - itemB.x, 2) + Math.Pow(itemA.y - itemB.y, 2);
         }
 
-        private static void FillItemSets()
+        private static Item SelectNearestItem(Item from, string itemType, bool chaosItems)
         {
-            foreach (var i in ItemSetList)
+            Item selectedItem = null;
+            var selectedDistSq = double.PositiveInfinity;
+
+            foreach (var stashTab in StashTabList.StashTabs)
             {
-                // Try to fill the set in order until one chaos item is present, lastEmptySlots counter prevents infinite loops
-                var lastEmptySlots = 0;
-                while (i.EmptyItemSlots.Count > 0 && lastEmptySlots != i.EmptyItemSlots.Count)
+                foreach (var item in (List<Item>)Utility.GetPropertyValue(stashTab, chaosItems ? "ItemListChaos" : "ItemList"))
                 {
-                    lastEmptySlots = i.EmptyItemSlots.Count;
-                    if (i.SetCanProduceChaos == false && !Settings.Default.RegalRecipeTrackingEnabled)
-                        if (AddItemToItemSet(i, true))
-                            continue;
+                    if (item.ItemType != itemType)
+                        continue;
 
-                    if (!AddItemToItemSet(i))
-                        if (Settings.Default.DoNotPreserveLowItemLevelGear &&
-                            !Settings.Default.RegalRecipeTrackingEnabled)
-                            AddItemToItemSet(i, true);
-                }
+                    if (from == item)
+                        continue;
 
-                /* At this point in time the following conditions may be met, exclusively
-                 * 1.) We obtained a full set and it contains one chaos item
-                 * 1.1) We obtained a full set and it contains multiple chaos items (only if filling with chaos items is allowed)
-                 * 2.) We obtained a full set without a chaos item -> We aren't lacking a regal item in this set but we don't have enough chaos items.
-                 * 3.) We couldn't obtain a full set. That means that at least one item slot is missing. We need to check which of the remaining slots we can still fill. We could still be missing a chaos item.
-                 */
-                if (i.EmptyItemSlots.Count == 0 &&
-                    (i.SetCanProduceChaos || Settings.Default.RegalRecipeTrackingEnabled))
-                    // Set full, continue
-                    continue;
+                    if (from == null)
+                        return item;
 
-                if (i.EmptyItemSlots.Count > 0)
-                {
-                    lastEmptySlots = 0;
-                    while (i.EmptyItemSlots.Count > 0 && i.EmptyItemSlots.Count != lastEmptySlots)
+                    var distSq = GetItemDistanceSq(from, item);
+                    if (distSq < selectedDistSq)
                     {
-                        lastEmptySlots = i.EmptyItemSlots.Count;
-                        if (!i.SetCanProduceChaos && !Settings.Default.RegalRecipeTrackingEnabled)
-                            if (AddItemToItemSet(i, true, false))
-                                continue;
-
-                        if (!AddItemToItemSet(i, false, false))
-                            // couldn't add a regal item. Try chaos item if filling with chaos is allowed
-                            if (Settings.Default.DoNotPreserveLowItemLevelGear &&
-                                !Settings.Default.RegalRecipeTrackingEnabled)
-                                AddItemToItemSet(i, true, false);
+                        selectedItem = item;
+                        selectedDistSq = distSq;
                     }
-                    // At this point the set will contain a chaos item as long as we had at least one left. If not we didn't have any chaos items left.
-                    // If the set is not full at this time we're missing at least one regal item. If it has not chaos item we're also missing chaos items.
-                    // Technically it could be only the chaos item that's missing but that can be neglected since when mixing you'll always be short on chaos items.
-                    // If not in "endgame" mode (always show chaos) have the loot filter apply to chaos and regal items the same way.
                 }
             }
 
-            if (Settings.Default.ExaltedShardRecipeTrackingEnabled) FillItemSetsInfluenced();
+            return selectedItem;
+        }
+        
+        private static void AddItem(ItemSet set, Item item, bool chaosItems)
+        {
+            set.AddItem(item);
+            var tab = GetStashTabFromItem(item);
+            ((List<Item>)Utility.GetPropertyValue(tab, chaosItems ? "ItemListChaos" : "ItemList")).Remove(item);
+        }
+
+        private static Item AddWeaponsToSet(ItemSet set, bool chaosItems, Item previousItem)
+        {
+            // Gather weapon set options: Either one Two-Hander or two One-Handers
+
+            Item twoHander = SelectNearestItem(previousItem, "TwoHandWeapons", chaosItems);
+
+            Item oneHanderA = SelectNearestItem(previousItem, "OneHandWeapons", chaosItems);
+            Item oneHanderB = null;
+            if (oneHanderA != null)
+                oneHanderB = SelectNearestItem(oneHanderA, "OneHandWeapons", chaosItems);
+
+            // No options?
+            if (twoHander == null && (oneHanderA == null || oneHanderB == null))
+                return null;
+
+            // Does only one option exist?
+            if (twoHander == null)
+            {
+                AddItem(set, oneHanderA, chaosItems);
+                AddItem(set, oneHanderB, chaosItems);
+                return oneHanderB;
+            }
+            else if (oneHanderA == null || oneHanderB == null)
+            {
+                AddItem(set, twoHander, chaosItems);
+                return twoHander;
+            }
+
+            // If this is the first pick then we can pick arbitrarily
+            if (previousItem == null)
+            {
+                AddItem(set, twoHander, chaosItems);
+                return twoHander;
+            }
+
+            // Otherwise, consider distance when choosing:
+            var twoHanderDistSq = Math.Sqrt(GetItemDistanceSq(previousItem, twoHander));
+            var oneHandersDistSq = Math.Sqrt(GetItemDistanceSq(previousItem, oneHanderA)) + Math.Sqrt(GetItemDistanceSq(oneHanderA, oneHanderB));
+            if (twoHanderDistSq <= oneHandersDistSq)
+            {
+                AddItem(set, twoHander, chaosItems);
+                return twoHander;
+            }
+            else
+            {
+                AddItem(set, oneHanderA, chaosItems);
+                AddItem(set, oneHanderB, chaosItems);
+                return oneHanderB;
+            }
+        }
+
+        private static Item AddItemTypeToSet(ItemSet set, string itemType, bool chaosItems, Item previousItem)
+        {
+            if (itemType == "Weapons")
+                return AddWeaponsToSet(set, chaosItems, previousItem);
+
+            var nearest = SelectNearestItem(previousItem, itemType, chaosItems);
+            if (nearest != null)
+                AddItem(set, nearest, chaosItems);
+
+            return nearest;
+        }
+
+        // Greedy O(n) algorithm to find a "decent" take-out order, but not the optimal
+        private static bool FillSingleItemSet(ItemSet set, bool chaosItems, List<Tuple<string, int>> counts)
+        {
+            // We use a greedy algorithm:
+            // 1. Take items in order of least available (dictated by counts).
+            // 2. Take the next item such that it minimizes the distance to the previous.
+            // 3. Sort the resulting set to furhter minimize takeout distance (i.e. remove inefficiencies due to ordering in 1.)
+
+            Item previousItem = null;
+            foreach (var count in counts)
+            {
+                if (count.Item1 == "Rings")
+                {
+                    var item = AddItemTypeToSet(set, count.Item1, chaosItems, previousItem);
+                    if (item == null)
+                        return false;
+                    item = AddItemTypeToSet(set, count.Item1, chaosItems, item);
+                    if (item == null)
+                        return false;
+                    previousItem = item;
+                }
+                else
+                {
+                    var item = AddItemTypeToSet(set, count.Item1, chaosItems, previousItem);
+                    if (item == null)
+                        return false;
+                    previousItem = item;
+                }
+            }
+            
+            for (int i = 0; i < set.ItemList.Count - 1; ++i)
+            {
+                var from = set.ItemList[i];
+                var closestItem = set.ItemList.Skip(i + 1).OrderBy(it => GetItemDistanceSq(from, it)).First();
+                var closestIndex = set.ItemList.IndexOf(closestItem);
+
+                var tmp = set.ItemList[i + 1];
+                set.ItemList[i + 1] = closestItem;
+                set.ItemList[closestIndex] = tmp;
+            }
+
+            return true;
+        }
+
+        private static void FillItemSets(List<Tuple<string, int>> chaosItemCounts, List<Tuple<string, int>> regalItemCounts)
+        {
+            // TODO: What is the meaning of Settings.Default.DoNotPreserveLowItemLevelGear
+            // TODO: Remove all traces of honoring given order, minimizing distance is preferable
+
+            chaosItemCounts.Sort((x, y) => x.Item2.CompareTo(y.Item2));
+            regalItemCounts.Sort((x, y) => x.Item2.CompareTo(y.Item2));
+
+            int i = 0;
+            if (Settings.Default.ChaosRecipeTrackingEnabled)
+            {
+                while (i < ItemSetList.Count && FillSingleItemSet(ItemSetList[i], true, chaosItemCounts))
+                    ++i;
+            }
+
+            if (Settings.Default.RegalRecipeTrackingEnabled)
+            {
+                while (i < ItemSetList.Count && FillSingleItemSet(ItemSetList[i], false, regalItemCounts))
+                    ++i;
+            }
         }
 
         private static void FillItemSetsInfluenced()
@@ -261,17 +320,15 @@ namespace ChaosRecipeEnhancer.UI.Model
                     foreach (var s in StashTabList.StashTabs)
                         GetSetTargetAmount(s);
 
-                if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode != 0)
-                {
-                    Trace.WriteLine("Calculating Items");
-                    CalculateItemAmounts(setTrackerOverlay);
-                }
+                Trace.WriteLine("Calculating Items");
+                CalculateItemAmounts(Settings.Default.SetTrackerOverlayItemCounterDisplayMode != 0 ? setTrackerOverlay : null,
+                    out var chaosItemCounts, out var regalItemCounts);
 
                 // generate {SetThreshold} empty sets to be filled
                 GenerateItemSetList();
 
                 // proceed to fill those newly created empty sets
-                FillItemSets();
+                FillItemSets(chaosItemCounts, regalItemCounts);
 
                 // check for full sets/ missing items
                 var missingGearPieceForChaosRecipe = false;
@@ -361,24 +418,28 @@ namespace ChaosRecipeEnhancer.UI.Model
             }
         }
 
-        public static void CalculateItemAmounts(SetTrackerOverlayView setTrackerOverlay)
+        public static void CalculateItemAmounts(SetTrackerOverlayView setTrackerOverlay,
+            out List<Tuple<string, int>> chaosItems, out List<Tuple<string, int>> regalItems)
         {
+            chaosItems = new List<Tuple<string, int>>();
+            regalItems = new List<Tuple<string, int>>();
+
+            // 0: rings
+            // 1: amulets
+            // 2: belts
+            // 3: chests
+            // 4: gloves
+            // 5: helmets
+            // 6: boots
+            // 7: two hand weapons
+            // 8: one hand weapons
+            var regalAmounts = new int[9];
+            var chaosAmounts = new int[9];
+
             if (StashTabList.StashTabs != null)
             {
                 Trace.WriteLine("calculating items amount");
 
-                // 0: rings
-                // 1: amulets
-                // 2: belts
-                // 3: chests
-                // 4: weapons
-                // 5: gloves
-                // 6: helmets
-                // 7: boots
-
-                var amounts = new int[8];
-                var weaponsSmall = 0;
-                var weaponBig = 0;
                 foreach (var tab in StashTabList.StashTabs)
                 {
                     Trace.WriteLine("tab amount " + tab.ItemList.Count);
@@ -389,22 +450,23 @@ namespace ChaosRecipeEnhancer.UI.Model
                         {
                             Trace.WriteLine(i.ItemType);
                             if (i.ItemType == "Rings")
-                                amounts[0]++;
+                                regalAmounts[0]++;
                             else if (i.ItemType == "Amulets")
-                                amounts[1]++;
+                                regalAmounts[1]++;
                             else if (i.ItemType == "Belts")
-                                amounts[2]++;
+                                regalAmounts[2]++;
                             else if (i.ItemType == "BodyArmours")
-                                amounts[3]++;
-                            else if (i.ItemType == "TwoHandWeapons")
-                                weaponBig++;
-                            else if (i.ItemType == "OneHandWeapons")
-                                weaponsSmall++;
+                                regalAmounts[3]++;
                             else if (i.ItemType == "Gloves")
-                                amounts[5]++;
+                                regalAmounts[4]++;
                             else if (i.ItemType == "Helmets")
-                                amounts[6]++;
-                            else if (i.ItemType == "Boots") amounts[7]++;
+                                regalAmounts[5]++;
+                            else if (i.ItemType == "Boots")
+                                regalAmounts[6]++;
+                            else if (i.ItemType == "TwoHandWeapons")
+                                regalAmounts[7]++;
+                            else if (i.ItemType == "OneHandWeapons")
+                                regalAmounts[8]++;
                         }
 
                     if (tab.ItemListChaos.Count > 0)
@@ -412,56 +474,67 @@ namespace ChaosRecipeEnhancer.UI.Model
                         {
                             Trace.WriteLine(i.ItemType);
                             if (i.ItemType == "Rings")
-                                amounts[0]++;
+                                chaosAmounts[0]++;
                             else if (i.ItemType == "Amulets")
-                                amounts[1]++;
+                                chaosAmounts[1]++;
                             else if (i.ItemType == "Belts")
-                                amounts[2]++;
+                                chaosAmounts[2]++;
                             else if (i.ItemType == "BodyArmours")
-                                amounts[3]++;
-                            else if (i.ItemType == "TwoHandWeapons")
-                                weaponBig++;
-                            else if (i.ItemType == "OneHandWeapons")
-                                weaponsSmall++;
+                                chaosAmounts[3]++;
                             else if (i.ItemType == "Gloves")
-                                amounts[5]++;
+                                chaosAmounts[4]++;
                             else if (i.ItemType == "Helmets")
-                                amounts[6]++;
-                            else if (i.ItemType == "Boots") amounts[7]++;
+                                chaosAmounts[5]++;
+                            else if (i.ItemType == "Boots")
+                                chaosAmounts[6]++;
+                            else if (i.ItemType == "TwoHandWeapons")
+                                chaosAmounts[7]++;
+                            else if (i.ItemType == "OneHandWeapons")
+                                chaosAmounts[8]++;
                         }
                 }
 
-                if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode == 1)
+                if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode == 1 && setTrackerOverlay != null)
                 {
                     Trace.WriteLine("we are here");
 
                     // calculate amounts needed for full sets
                     //amounts[0] = amounts[0] / 2;
-                    foreach (var a in amounts) Trace.WriteLine(a);
+                    foreach (var a in regalAmounts) Trace.WriteLine(a);
 
-                    amounts[4] = weaponsSmall + weaponBig;
-                    setTrackerOverlay.RingsAmount = amounts[0];
-                    setTrackerOverlay.AmuletsAmount = amounts[1];
-                    setTrackerOverlay.BeltsAmount = amounts[2];
-                    setTrackerOverlay.ChestsAmount = amounts[3];
-                    setTrackerOverlay.WeaponsAmount = amounts[4];
-                    setTrackerOverlay.GlovesAmount = amounts[5];
-                    setTrackerOverlay.HelmetsAmount = amounts[6];
-                    setTrackerOverlay.BootsAmount = amounts[7];
+                    setTrackerOverlay.RingsAmount = regalAmounts[0] + chaosAmounts[0];
+                    setTrackerOverlay.AmuletsAmount = regalAmounts[1] + chaosAmounts[1];
+                    setTrackerOverlay.BeltsAmount = regalAmounts[2] + chaosAmounts[2];
+                    setTrackerOverlay.ChestsAmount = regalAmounts[3] + chaosAmounts[3];
+                    setTrackerOverlay.GlovesAmount = regalAmounts[4] + chaosAmounts[4];
+                    setTrackerOverlay.HelmetsAmount = regalAmounts[5] + chaosAmounts[5];
+                    setTrackerOverlay.BootsAmount = regalAmounts[6] + chaosAmounts[6];
+                    setTrackerOverlay.WeaponsAmount = regalAmounts[7] + regalAmounts[8] + chaosAmounts[7] + chaosAmounts[8];
                 }
-                else if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode == 2)
+                else if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode == 2 && setTrackerOverlay != null)
                 {
-                    amounts[4] = weaponsSmall + weaponBig;
-                    setTrackerOverlay.RingsAmount = SetTargetAmount * 2 - amounts[0];
-                    setTrackerOverlay.AmuletsAmount = SetTargetAmount - amounts[1];
-                    setTrackerOverlay.BeltsAmount = SetTargetAmount - amounts[2];
-                    setTrackerOverlay.ChestsAmount = SetTargetAmount - amounts[3];
-                    setTrackerOverlay.WeaponsAmount = SetTargetAmount * 2 - (weaponsSmall + weaponBig * 2);
-                    setTrackerOverlay.GlovesAmount = SetTargetAmount - amounts[5];
-                    setTrackerOverlay.HelmetsAmount = SetTargetAmount - amounts[6];
-                    setTrackerOverlay.BootsAmount = SetTargetAmount - amounts[7];
+                    setTrackerOverlay.RingsAmount = SetTargetAmount * 2 - regalAmounts[0] - chaosAmounts[0];
+                    setTrackerOverlay.AmuletsAmount = SetTargetAmount - regalAmounts[1] - chaosAmounts[1];
+                    setTrackerOverlay.BeltsAmount = SetTargetAmount - regalAmounts[2] - chaosAmounts[2];
+                    setTrackerOverlay.ChestsAmount = SetTargetAmount - regalAmounts[3] - chaosAmounts[3];
+                    setTrackerOverlay.GlovesAmount = SetTargetAmount - regalAmounts[4] - chaosAmounts[4];
+                    setTrackerOverlay.HelmetsAmount = SetTargetAmount - regalAmounts[5] - chaosAmounts[5];
+                    setTrackerOverlay.BootsAmount = SetTargetAmount - regalAmounts[6] - chaosAmounts[6];
+                    setTrackerOverlay.WeaponsAmount = SetTargetAmount * 2 -
+                        (chaosAmounts[7] + regalAmounts[7] + (chaosAmounts[8] + regalAmounts[8]) * 2);
                 }
             }
+
+            int idx = 0;
+            foreach (var itemType in new string[] { "Rings", "Amulets", "Belts", "BodyArmours", "Gloves", "Helmets", "Boots" })
+            {
+                chaosItems.Add(new Tuple<string, int>(itemType, chaosAmounts[idx]));
+                regalItems.Add(new Tuple<string, int>(itemType, regalAmounts[idx]));
+                ++idx;
+            }
+
+            chaosItems.Add(new Tuple<string, int>("Weapons", chaosAmounts[7] + chaosAmounts[8]));
+            regalItems.Add(new Tuple<string, int>("Weapons", regalAmounts[7] + regalAmounts[8]));
         }
 
         public static void PlayNotificationSound()
@@ -667,18 +740,8 @@ namespace ChaosRecipeEnhancer.UI.Model
             foreach (var s in StashTabList.StashTabs)
                 s.PrepareOverlayList();
 
-            foreach (var itemSet in ItemSetList)
-                itemSet.OrderItems();
-
             if (Settings.Default.ExaltedShardRecipeTrackingEnabled)
             {
-                ItemSetShaper.OrderItems();
-                ItemSetElder.OrderItems();
-                ItemSetWarlord.OrderItems();
-                ItemSetCrusader.OrderItems();
-                ItemSetHunter.OrderItems();
-                ItemSetRedeemer.OrderItems();
-
                 if (ItemSetShaper.EmptyItemSlots.Count == 0)
                     ItemSetListHighlight.Add(new ItemSet
                     {

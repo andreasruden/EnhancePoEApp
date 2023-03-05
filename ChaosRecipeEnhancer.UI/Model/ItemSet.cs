@@ -6,6 +6,9 @@ namespace ChaosRecipeEnhancer.UI.Model
 {
     public class ItemSet
     {
+        public const double StashTabDistance = 100;
+        public const double StashTabDistanceSq = StashTabDistance * StashTabDistance;
+
         public List<Item> ItemList { get; set; } = new List<Item>();
 
         // We'll use the list to check which types we still needs to add to the set.
@@ -48,19 +51,16 @@ namespace ChaosRecipeEnhancer.UI.Model
             return false;
         }
 
-        public void OrderItems()
+        public double GetItemDistanceSq(Item item)
         {
-            var orderedClasses = new List<string>
-            {
-                "BodyArmours", "TwoHandWeapons", "OneHandWeapons", "OneHandWeapons", "Helmets", "Gloves", "Boots",
-                "Belts", "Rings", "Rings", "Amulets"
-            };
-            ItemList = ItemList.OrderBy(d => orderedClasses.IndexOf(d.ItemType)).ToList();
+            if (item.StashTabIndex != CurrentPosition[2]) return StashTabDistanceSq;
+
+            return Math.Pow(item.x - CurrentPosition[0], 2) + Math.Pow(item.y - CurrentPosition[1], 2);
         }
 
         public double GetItemDistance(Item item)
         {
-            if (item.StashTabIndex != CurrentPosition[2]) return 40;
+            if (item.StashTabIndex != CurrentPosition[2]) return StashTabDistance;
 
             return Math.Sqrt(Math.Pow(item.x - CurrentPosition[0], 2) + Math.Pow(item.y - CurrentPosition[1], 2));
         }
