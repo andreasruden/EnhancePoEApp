@@ -33,17 +33,20 @@ namespace ChaosRecipeEnhancer.UI.Filter
         private readonly List<string> _customStyle = new List<string>();
         private readonly List<string> _customStyleInfluenced = new List<string>();
 
+        private List<string> missing = new List<string>(); // TODO: This edit addition is a hack, fix it proper
+
         #endregion
 
         #region Methods
 
-        public async Task<ActiveItemTypes> GenerateSectionsAndUpdateFilterAsync(HashSet<string> missingItemClasses,
-            bool missingChaosItem)
+        public async Task<ActiveItemTypes> GenerateSectionsAndUpdateFilterAsync(HashSet<string> missingItemClasses)
         {
             var activeItemTypes = new ActiveItemTypes();
             var visitor = new CItemClassManagerFactory();
             var sectionList = new HashSet<string>();
             var sectionListExalted = new HashSet<string>();
+
+            missing.Clear();
 
             foreach (EnumItemClass item in Enum.GetValues(typeof(EnumItemClass)))
             {
@@ -55,12 +58,9 @@ namespace ChaosRecipeEnhancer.UI.Filter
                 if ((Settings.Default.ChaosRecipeTrackingEnabled || Settings.Default.RegalRecipeTrackingEnabled)
                     && (_itemClassManager.AlwaysActive || stillMissing))
                 {
-                    // if we need chaos only gear to complete a set (60-74), add that to our filter section
-                    if (missingChaosItem)
-                        sectionList.Add(GenerateSection(false, true));
-                    // else add any gear piece 60+ to our section for that item class
-                    else
-                        sectionList.Add(GenerateSection(false));
+                    sectionList.Add(GenerateSection(false));
+
+                    missing.Add(_itemClassManager.ClassFilterName);
 
                     // find better way to handle active items and sound notification on changes
                     activeItemTypes = _itemClassManager.SetActiveTypes(activeItemTypes, true);
@@ -172,6 +172,27 @@ namespace ChaosRecipeEnhancer.UI.Filter
             return beforeSection + sectionBody + afterSection;
         }
 
+        // TODO: This edit addition is a hack, fix it proper
+        private string EditFilter(string oldFilter, bool chaosItems)
+        {
+            int endIndex = oldFilter.IndexOf("# !Enhancer: Chaos");
+            if (endIndex == -1)
+                throw new FormatException("Missing \"# !Enhancer: Chaos\" in filter");
+
+            int startIndex = endIndex;
+            while (startIndex > 0 && oldFilter[startIndex] != '\n')
+                --startIndex;
+            ++startIndex;
+
+            string replacedPart;
+            if (missing.Count == 0)
+                replacedPart = "    # Class: None currently ";
+            else
+                replacedPart = $"    Class {string.Join(" ", missing)} ";
+
+            return oldFilter.Substring(0, startIndex) + replacedPart + oldFilter.Substring(endIndex);
+        }
+
         private async Task UpdateFilterAsync(IEnumerable<string> sectionList, IEnumerable<string> sectionListExalted)
         {
             var filterStorage = FilterStorageFactory.Create(Settings.Default);
@@ -179,9 +200,19 @@ namespace ChaosRecipeEnhancer.UI.Filter
             var oldFilter = await filterStorage.ReadLootFilterAsync();
             if (oldFilter == null) return;
 
-            var newFilter = GenerateLootFilter(oldFilter, sectionList);
-            oldFilter = newFilter;
-            newFilter = GenerateLootFilter(oldFilter, sectionListExalted, false);
+            string newFilter;
+
+            bool todoSettingForEdit = true;
+            if (todoSettingForEdit)
+            {
+                newFilter = EditFilter(oldFilter, true);
+            }
+            else
+            {
+                newFilter = GenerateLootFilter(oldFilter, sectionList);
+                oldFilter = newFilter;
+                newFilter = GenerateLootFilter(oldFilter, sectionListExalted, false);
+            }
 
             await filterStorage.WriteLootFilterAsync(newFilter);
         }

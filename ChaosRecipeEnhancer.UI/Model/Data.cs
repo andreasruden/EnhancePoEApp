@@ -431,29 +431,47 @@ namespace ChaosRecipeEnhancer.UI.Model
                 // unique missing item classes
                 var missingItemClasses = new HashSet<string>();
 
-                // for every set in our itemsetlist check if their EmptyItemSlots is 0 if not add to our full set count
-                foreach (var set in ItemSetList)
-                    if (set.EmptyItemSlots.Count == 0)
+                if (Settings.Default.ChaosRecipeTrackingEnabled)
+                {
+                    foreach (var chaosCount in chaosItemCounts)
                     {
-                        // fix for: condition (fullSets == SetTargetAmount && missingChaos)
-                        // never true cause fullsets < settargetamount when missingChaos @ikogan
-                        fullSets++;
+                        if (chaosCount.Item2 < SetTargetAmount)
+                        {
+                            var type = chaosCount.Item1;
+                            if (type == "Weapons")
+                            {
+                                missingItemClasses.Add("OneHandWeapons");
+                                missingItemClasses.Add("TwoHandWeapons");
+                            }
+                            else
+                                missingItemClasses.Add(type);
+                        }
+                    }
+                }
 
-                        if (!set.SetCanProduceChaos && !Settings.Default.RegalRecipeTrackingEnabled)
-                            missingGearPieceForChaosRecipe = true;
-                    }
-                    else
+                if (Settings.Default.RegalRecipeTrackingEnabled)
+                {
+                    foreach (var regalCount in regalItemCounts)
                     {
-                        // all classes which are active over all ilvls
-                        foreach (var itemClass in set.EmptyItemSlots) missingItemClasses.Add(itemClass);
+                        if (regalCount.Item2 < SetTargetAmount)
+                        {
+                            var type = regalCount.Item1;
+                            if (type == "Weapons")
+                            {
+                                missingItemClasses.Add("OneHandWeapons");
+                                missingItemClasses.Add("TwoHandWeapons");
+                            }
+                            else
+                                missingItemClasses.Add(type);
+                        }
                     }
+                }
 
                 var filterManager = new CFilterGenerationManager();
 
                 // i need to pass in the missingGearPieceForChaosRecipe
                 ActiveItems =
-                    await filterManager.GenerateSectionsAndUpdateFilterAsync(missingItemClasses,
-                        missingGearPieceForChaosRecipe);
+                    await filterManager.GenerateSectionsAndUpdateFilterAsync(missingItemClasses);
 
                 //Trace.WriteLine(fullSets, "full sets");
                 setTrackerOverlay.Dispatcher.Invoke(() => { setTrackerOverlay.FullSetsText = fullSets.ToString(); });
