@@ -111,6 +111,7 @@ namespace ChaosRecipeEnhancer.UI.Model
             set.AddItem(item);
             var tab = GetStashTabFromItem(item);
             ((List<Item>)Utility.GetPropertyValue(tab, chaosItems ? "ItemListChaos" : "ItemList")).Remove(item);
+            tab.RemoveItemFromGrid(item);
         }
 
         private static Item AddWeaponsToSet(ItemSet set, bool chaosItems, Item previousItem)
@@ -176,7 +177,7 @@ namespace ChaosRecipeEnhancer.UI.Model
             return nearest;
         }
 
-        // Greedy O(n) algorithm to find a "decent" take-out order, but not the optimal
+        // Greedy O(n), for n items, algorithm to find a "decent" take-out order, but not the optimal
         private static bool FillSingleItemSet(ItemSet set, bool chaosItems, List<Tuple<string, int>> counts)
         {
             // We use a greedy algorithm:
@@ -205,17 +206,110 @@ namespace ChaosRecipeEnhancer.UI.Model
                     previousItem = item;
                 }
             }
-            
+
+            SortTakeoutOrder(set);
+
+            return true;
+        }
+
+        private static void SortTakeoutOrder(ItemSet set)
+        {
             for (int i = 0; i < set.ItemList.Count - 1; ++i)
             {
                 var from = set.ItemList[i];
                 var closestItem = set.ItemList.Skip(i + 1).OrderBy(it => GetItemDistanceSq(from, it)).First();
                 var closestIndex = set.ItemList.IndexOf(closestItem);
 
-                var tmp = set.ItemList[i + 1];
-                set.ItemList[i + 1] = closestItem;
-                set.ItemList[closestIndex] = tmp;
+                set.ItemList[closestIndex] = set.ItemList[i + 1];
+                set.ItemList[i + 1] = closestItem;                
             }
+        }
+
+        // Expanding square flooding algorithm for finding items to take out that minimize distance to a given
+        // starting item (which is determiend by selecting item type with lowest count)
+        private static bool FillSingleItemSetAlt(ItemSet set, bool chaosItems, List<Tuple<string, int>> counts)
+        {
+            var firstItem = AddItemTypeToSet(set, counts[0].Item1, chaosItems, null);
+            if (firstItem == null)
+                return false;
+            var floodTab = GetStashTabFromItem(firstItem);
+            var centerX = (int)Math.Floor(firstItem.x + 0.5 * firstItem.w);
+            var centerY = (int)Math.Floor(firstItem.y + 0.5 * firstItem.h);
+
+            var needed = new List<string>() { "Rings", "Rings", "Amulets", "Belts", "BodyArmours", "Gloves", "Helmets", "Boots", "Weapons" };
+            needed.Remove(firstItem.ItemType);
+
+            Item previousOneHander = null;
+            Item previousItem = null;
+
+            int topX = centerX - 1, bottomX = centerX + 1, topY = centerY - 1, bottomY = centerY + 1;
+            var sz = floodTab.Quad ? 24 : 12;
+            while (topX >= 0 || topY >= 0 || bottomX <= sz || bottomY <= sz)
+            {
+                // We loop the inner border of our expanding square, note that some of it may be outside the stash tab
+                for (int y = topY; y <= bottomY; ++y)
+                {
+                    for (int x = topX; x <= bottomX; /*empty*/)
+                    {
+                        Item item = null;
+                        if (x >= 0 && y >= 0 && x < sz && y < sz)
+                            item = floodTab.ItemGrid[x, y];
+
+                        if (item != null)
+                        {
+                            if (item.ItemType == "TwoHandWeapons" && needed.Contains("Weapons"))
+                            {
+                                AddItem(set, item, chaosItems);
+                                needed.Remove("Weapons");
+                                previousItem = item;
+                            }
+                            else if (item.ItemType == "OneHandWeapons" && needed.Contains("Weapons"))
+                            {
+                                if (previousOneHander == null)
+                                {
+                                    previousOneHander = item;
+                                }
+                                else if (previousOneHander != item)
+                                {
+                                    AddItem(set, previousOneHander, chaosItems);
+                                    AddItem(set, item, chaosItems);
+                                    needed.Remove("Weapons");
+                                    previousItem = item;
+                                }
+                            }
+                            else if (needed.Contains(item.ItemType))
+                            {
+                                AddItem(set, item, chaosItems);
+                                needed.Remove(item.ItemType);
+                                previousItem = item;
+                            }
+                        }
+
+                        if (y == topY || y == bottomY)
+                            ++x;
+                        else
+                            x += (bottomX - topX);
+                    }
+                }
+
+                // TODO: Early exist if needed is empty
+
+                --topX; --topY; ++bottomX; ++bottomY;
+            }
+
+            foreach (var need in needed)
+            {
+                previousItem = AddItemTypeToSet(set, need, chaosItems, previousItem);
+                if (previousItem == null)
+                    return false;
+            }
+
+            // Take top-leftmost item out first (TODO: We should just show overlay for all items to take out at once)
+            var topLeftItem = set.ItemList.Where(it => it.y == set.ItemList.Min(ite => ite.y)).OrderBy(it => it.x).First();
+            var topLeftIndex = set.ItemList.IndexOf(topLeftItem);
+            set.ItemList[topLeftIndex] = set.ItemList[0];
+            set.ItemList[0] = topLeftItem;
+            SortTakeoutOrder(set);
 
             return true;
         }
@@ -231,13 +325,13 @@ namespace ChaosRecipeEnhancer.UI.Model
             int i = 0;
             if (Settings.Default.ChaosRecipeTrackingEnabled)
             {
-                while (i < ItemSetList.Count && FillSingleItemSet(ItemSetList[i], true, chaosItemCounts))
+                while (i < ItemSetList.Count && FillSingleItemSetAlt(ItemSetList[i], true, chaosItemCounts))
                     ++i;
             }
 
             if (Settings.Default.RegalRecipeTrackingEnabled)
             {
-                while (i < ItemSetList.Count && FillSingleItemSet(ItemSetList[i], false, regalItemCounts))
+                while (i < ItemSetList.Count && FillSingleItemSetAlt(ItemSetList[i], false, regalItemCounts))
                     ++i;
             }
         }

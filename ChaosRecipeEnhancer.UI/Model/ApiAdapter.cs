@@ -383,6 +383,7 @@ namespace ChaosRecipeEnhancer.UI.Model
                                 }
 
                                 i.CleanItemList();
+                                i.CreateContentGrid();
                             }
                         }
                         else

@@ -26,6 +26,8 @@ namespace ChaosRecipeEnhancer.UI.Model
                 Settings.Default.StashTabOverlayIndividualTabHeaderWidth, 2);
         }
 
+        public Item[,] ItemGrid { get; set; }
+
         public Uri StashTabUri { get; set; }
         public List<Item> ItemList { get; set; }
         public List<Item> ItemListChaos { get; set; } = new List<Item>();
@@ -173,6 +175,39 @@ namespace ChaosRecipeEnhancer.UI.Model
                     ItemListChaos.Add(ItemList[i]);
                     ItemList.RemoveAt(i);
                 }
+            }
+        }
+
+        public void CreateContentGrid()
+        {
+            var size = Quad ? 24 : 12;
+            ItemGrid = new Item[size, size];
+
+            foreach (var regalItem in ItemList)
+            {
+                for (int x = regalItem.x; x < regalItem.x + regalItem.w; ++x)
+                {
+                    for (int y = regalItem.y; y < regalItem.y + regalItem.h; ++y)
+                        ItemGrid[x, y] = regalItem;
+                }
+            }
+
+            foreach (var chaosItem in ItemListChaos)
+            {
+                for (int x = chaosItem.x; x < chaosItem.x + chaosItem.w; ++x)
+                {
+                    for (int y = chaosItem.y; y < chaosItem.y + chaosItem.h; ++y)
+                        ItemGrid[x, y] = chaosItem;
+                }
+            }
+        }
+
+        public void RemoveItemFromGrid(Item item)
+        {
+            for (int x = item.x; x < item.x + item.w; ++x)
+            {
+                for (int y = item.y; y < item.y + item.h; ++y)
+                    ItemGrid[x, y] = null;
             }
         }
 
