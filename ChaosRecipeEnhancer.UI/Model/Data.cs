@@ -314,7 +314,7 @@ namespace ChaosRecipeEnhancer.UI.Model
             return true;
         }
 
-        private static void FillItemSets(List<Tuple<string, int>> chaosItemCounts, List<Tuple<string, int>> regalItemCounts)
+        private static int FillItemSets(List<Tuple<string, int>> chaosItemCounts, List<Tuple<string, int>> regalItemCounts)
         {
             // TODO: What is the meaning of Settings.Default.DoNotPreserveLowItemLevelGear
             // TODO: Remove all traces of honoring given order, minimizing distance is preferable
@@ -334,6 +334,8 @@ namespace ChaosRecipeEnhancer.UI.Model
                 while (i < ItemSetList.Count && FillSingleItemSetAlt(ItemSetList[i], false, regalItemCounts))
                     ++i;
             }
+
+            return i;
         }
 
         private static void FillItemSetsInfluenced()
@@ -416,56 +418,16 @@ namespace ChaosRecipeEnhancer.UI.Model
 
                 Trace.WriteLine("Calculating Items");
                 CalculateItemAmounts(Settings.Default.SetTrackerOverlayItemCounterDisplayMode != 0 ? setTrackerOverlay : null,
-                    out var chaosItemCounts, out var regalItemCounts);
+                    out var chaosItemCounts, out var regalItemCounts, out var missingItemClasses);
 
                 // generate {SetThreshold} empty sets to be filled
                 GenerateItemSetList();
 
                 // proceed to fill those newly created empty sets
-                FillItemSets(chaosItemCounts, regalItemCounts);
+                var fullSets = FillItemSets(chaosItemCounts, regalItemCounts);
 
                 // check for full sets/ missing items
-                var missingGearPieceForChaosRecipe = false;
-                var fullSets = 0;
-
-                // unique missing item classes
-                var missingItemClasses = new HashSet<string>();
-
-                if (Settings.Default.ChaosRecipeTrackingEnabled)
-                {
-                    foreach (var chaosCount in chaosItemCounts)
-                    {
-                        if (chaosCount.Item2 < SetTargetAmount)
-                        {
-                            var type = chaosCount.Item1;
-                            if (type == "Weapons")
-                            {
-                                missingItemClasses.Add("OneHandWeapons");
-                                missingItemClasses.Add("TwoHandWeapons");
-                            }
-                            else
-                                missingItemClasses.Add(type);
-                        }
-                    }
-                }
-
-                if (Settings.Default.RegalRecipeTrackingEnabled)
-                {
-                    foreach (var regalCount in regalItemCounts)
-                    {
-                        if (regalCount.Item2 < SetTargetAmount)
-                        {
-                            var type = regalCount.Item1;
-                            if (type == "Weapons")
-                            {
-                                missingItemClasses.Add("OneHandWeapons");
-                                missingItemClasses.Add("TwoHandWeapons");
-                            }
-                            else
-                                missingItemClasses.Add(type);
-                        }
-                    }
-                }
+                var missingGearPieceForChaosRecipe = false; // TODO
 
                 var filterManager = new CFilterGenerationManager();
 
@@ -531,10 +493,11 @@ namespace ChaosRecipeEnhancer.UI.Model
         }
 
         public static void CalculateItemAmounts(SetTrackerOverlayView setTrackerOverlay,
-            out List<Tuple<string, int>> chaosItems, out List<Tuple<string, int>> regalItems)
+            out List<Tuple<string, int>> chaosItems, out List<Tuple<string, int>> regalItems, out HashSet<string> missing)
         {
             chaosItems = new List<Tuple<string, int>>();
             regalItems = new List<Tuple<string, int>>();
+            missing = new HashSet<string>();
 
             // 0: rings
             // 1: amulets
@@ -606,14 +569,23 @@ namespace ChaosRecipeEnhancer.UI.Model
                         }
                 }
 
+                // Update missing
+                if (chaosAmounts[0] / 2 + regalAmounts[0] / 2 < SetTargetAmount) missing.Add("Rings");
+                if (chaosAmounts[1] + regalAmounts[1] < SetTargetAmount) missing.Add("Amulets");
+                if (chaosAmounts[2] + regalAmounts[2] < SetTargetAmount) missing.Add("Belts");
+                if (chaosAmounts[3] + regalAmounts[3] < SetTargetAmount) missing.Add("BodyArmours");
+                if (chaosAmounts[4] + regalAmounts[4] < SetTargetAmount) missing.Add("Gloves");
+                if (chaosAmounts[5] + regalAmounts[5] < SetTargetAmount) missing.Add("Helmets");
+                if (chaosAmounts[6] + regalAmounts[6] < SetTargetAmount) missing.Add("Boots");
+                if (chaosAmounts[7] + regalAmounts[7] + chaosAmounts[8] / 2 + regalAmounts[8] / 2 < SetTargetAmount)
+                {
+                    missing.Add("OneHandWeapons");
+                    missing.Add("TwoHandWeapons");
+                }
+
+                // Update overlay counter
                 if (Settings.Default.SetTrackerOverlayItemCounterDisplayMode == 1 && setTrackerOverlay != null)
                 {
-                    Trace.WriteLine("we are here");
-
-                    // calculate amounts needed for full sets
-                    //amounts[0] = amounts[0] / 2;
-                    foreach (var a in regalAmounts) Trace.WriteLine(a);
-
                     setTrackerOverlay.RingsAmount = regalAmounts[0] + chaosAmounts[0];
                     setTrackerOverlay.AmuletsAmount = regalAmounts[1] + chaosAmounts[1];
                     setTrackerOverlay.BeltsAmount = regalAmounts[2] + chaosAmounts[2];
