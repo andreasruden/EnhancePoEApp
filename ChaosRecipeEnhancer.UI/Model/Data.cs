@@ -520,7 +520,8 @@ namespace ChaosRecipeEnhancer.UI.Model
                     Trace.WriteLine("tab amount " + tab.ItemList.Count);
                     Trace.WriteLine("tab amount " + tab.ItemListChaos.Count);
 
-                    if (tab.ItemList.Count > 0)
+                    if (Settings.Default.RegalRecipeTrackingEnabled)
+                    {
                         foreach (var i in tab.ItemList)
                         {
                             Trace.WriteLine(i.ItemType);
@@ -543,8 +544,10 @@ namespace ChaosRecipeEnhancer.UI.Model
                             else if (i.ItemType == "OneHandWeapons")
                                 regalAmounts[8]++;
                         }
+                    }
 
-                    if (tab.ItemListChaos.Count > 0)
+                    if (Settings.Default.ChaosRecipeTrackingEnabled)
+                    {
                         foreach (var i in tab.ItemListChaos)
                         {
                             Trace.WriteLine(i.ItemType);
@@ -567,6 +570,7 @@ namespace ChaosRecipeEnhancer.UI.Model
                             else if (i.ItemType == "OneHandWeapons")
                                 chaosAmounts[8]++;
                         }
+                    }
                 }
 
                 // Update missing
